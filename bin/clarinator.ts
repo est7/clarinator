@@ -10,6 +10,7 @@
 
 import { validatePayload, validatePlanPayload, ValidationError } from "../src/validate.ts";
 import { buildResult, validateAnswers } from "../src/reducer.ts";
+import { injectBootstrap } from "../src/bootstrapHtml.ts";
 import type {
   Answer,
   Answers,
@@ -93,12 +94,11 @@ function sanitizeAnswers(payload: ClarityPayload, raw: unknown): Answers {
 }
 
 function inject(boot: Bootstrap): string {
-  if (!appHtml || !appHtml.includes("</head>")) {
+  try {
+    return injectBootstrap(appHtml, boot);
+  } catch {
     fail("embedded UI (dist/app.html) is missing or has no </head> sentinel — run `bun run build` before compiling");
   }
-  const safe = JSON.stringify(boot).replace(/</g, "\\u003c");
-  const tag = `<script>window.__CLARINATOR__ = ${safe};</script>`;
-  return appHtml.replace("</head>", `${tag}</head>`);
 }
 
 function openBrowser(url: string): void {
