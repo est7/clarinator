@@ -25,7 +25,7 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
   const orderIndex = new Map(payload.decisions.map((d, i) => [d.id, i]));
 
   return (
-    <div className="wrap">
+    <div className="wrap clarity-wrap">
       <header className="masthead">
         <h1>{payload.title}</h1>
         {payload.subtitle && <div className="sub">{payload.subtitle}</div>}

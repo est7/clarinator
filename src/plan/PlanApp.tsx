@@ -59,7 +59,7 @@ export function PlanApp({ boot }: { boot: PlanBootstrap }) {
   if (phase !== "active") return <EndScreen phase={phase} t={t} />;
 
   return (
-    <div className="wrap">
+    <div className="wrap plan-wrap">
       <header className="masthead">
         <h1>{payload.title}</h1>
         {payload.subtitle && <div className="sub">{payload.subtitle}</div>}
