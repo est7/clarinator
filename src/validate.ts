@@ -2,7 +2,7 @@
 // exact field path, mirroring the strictness of the original render.py. The server
 // runs this before serving; tests pin the contract.
 
-import type { ClarityPayload, ClarityDecision } from "./types.ts";
+import type { ClarityPayload, ClarityDecision, PlanPayload } from "./types.ts";
 
 export class ValidationError extends Error {}
 
@@ -159,4 +159,18 @@ export function validatePayload(data: unknown): ClarityPayload {
 /** Convenience: a decision's parent id, or null for a root decision. */
 export function parentOf(dec: ClarityDecision): string | null {
   return dec.show_if?.decision ?? null;
+}
+
+/** Validate a plan payload (Step 2). Throws ValidationError on the first violation. */
+export function validatePlanPayload(data: unknown): PlanPayload {
+  require(isObject(data), "<root>", "expected object");
+  const allowed = new Set(["title", "subtitle", "plan"]);
+  const extra = Object.keys(data).filter((k) => !allowed.has(k));
+  require(extra.length === 0, "<root>", `unknown keys: ${extra.sort().join(", ")}`);
+
+  str(data.title, "title", { min: 1, max: 120 });
+  if (data.subtitle !== undefined) str(data.subtitle, "subtitle", { max: 160 });
+  str(data.plan, "plan", { min: 1, max: 100000 });
+
+  return data as unknown as PlanPayload;
 }

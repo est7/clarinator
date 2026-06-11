@@ -1,0 +1,5 @@
+{
+  "title": "Login flow — implementation plan",
+  "subtitle": "v1 · magic-link",
+  "plan": "## Goal\n\nShip passwordless email login for the v1 B2C web client. Magic-link only; server session in an httpOnly cookie.\n\n## Approach\n\n1. **Issue token** — `POST /auth/request` generates a single-use, 15-minute token, stores its hash, emails the link.\n2. **Consume token** — `GET /auth/callback?token=…` verifies the hash, creates a server session, sets an httpOnly cookie, redirects to the app.\n3. **Session** — server-side session store keyed by an opaque id; revocable on logout.\n\n## Files touched\n\n- `auth/router.ts` — the two new routes.\n- `auth/token.ts` — token issue/verify (hash with SHA-256, constant-time compare).\n- `auth/session.ts` — session create/destroy.\n- `mail/templates/magic-link.html` — the email.\n\n## Risks\n\n- Token replay if the hash store is not cleared on use — delete on first successful consume.\n- Email deliverability is out of scope for v1; assume the existing transactional provider.\n\n## Out of scope\n\nPassword auth, SSO, and account recovery — none ship in v1."
+}

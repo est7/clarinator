@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePayload, ValidationError } from "./validate.ts";
+import { validatePayload, validatePlanPayload, ValidationError } from "./validate.ts";
 
 function base(): Record<string, unknown> {
   return {
@@ -125,5 +125,19 @@ describe("validatePayload — field rules", () => {
       expect(e).toBeInstanceOf(ValidationError);
       expect((e as Error).message).toMatch(/^title:/);
     }
+  });
+});
+
+describe("validatePlanPayload", () => {
+  it("accepts a minimal plan", () => {
+    expect(() => validatePlanPayload({ title: "Plan", plan: "## Goal\n\nDo the thing." })).not.toThrow();
+  });
+
+  it("rejects a missing plan body", () => {
+    expect(() => validatePlanPayload({ title: "Plan" })).toThrow(/plan:/);
+  });
+
+  it("rejects unknown keys", () => {
+    expect(() => validatePlanPayload({ title: "Plan", plan: "x", extra: 1 })).toThrow(/unknown keys/);
   });
 });

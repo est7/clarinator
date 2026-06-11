@@ -62,14 +62,48 @@ export interface ClaritySubmission {
   result: ResultItem[];
 }
 
+// ─── plan mode (Step 2): review an agent's plan, annotate inline, approve/revise ───
+
+export interface PlanPayload {
+  title: string;
+  subtitle?: string;
+  /** The plan as Markdown; rendered into commentable blocks client-side. */
+  plan: string;
+}
+
+export interface PlanAnnotation {
+  /** Index of the rendered block the comment is anchored to. */
+  blockIndex: number;
+  /** A short excerpt of the block, so the agent can locate it without the index. */
+  quote: string;
+  comment: string;
+}
+
+export interface PlanSubmission {
+  mode: "plan";
+  title: string;
+  decision: "approve" | "revise";
+  annotations: PlanAnnotation[];
+  generalFeedback?: string;
+}
+
 /** Injected into the page at launch as `window.__CLARINATOR__`. */
-export interface Bootstrap {
+export interface ClarityBootstrap {
   mode: "clarity";
   token: string;
   /** UI-chrome language hint (e.g. "zh", "en"); falls back to browser, then English. */
   locale?: string;
   payload: ClarityPayload;
 }
+
+export interface PlanBootstrap {
+  mode: "plan";
+  token: string;
+  locale?: string;
+  payload: PlanPayload;
+}
+
+export type Bootstrap = ClarityBootstrap | PlanBootstrap;
 
 declare global {
   interface Window {

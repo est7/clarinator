@@ -65,6 +65,30 @@ body {
 .btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.ghost { color: var(--ink-dim); }
 
+/* plan mode */
+.plan-block { position: relative; border: 1px solid transparent; border-radius: 6px; padding: 4px 16px 4px 18px; margin: 2px 0; }
+.plan-block:hover { border-color: var(--line); background: var(--panel); }
+.plan-block.commenting { border-color: var(--accent); background: var(--panel); }
+.plan-block .comment-tag { position: absolute; top: 8px; right: 8px; opacity: 0; font-family: var(--mono); font-size: 11px; color: var(--accent); background: var(--panel-2); border: 1px solid var(--accent); border-radius: 3px; padding: 2px 8px; cursor: pointer; transition: opacity 0.12s; }
+.plan-block:hover .comment-tag, .plan-block.commenting .comment-tag { opacity: 1; }
+.plan-block .md { font-size: 15px; }
+.md h1, .md h2, .md h3 { font-family: var(--mono); letter-spacing: -0.01em; }
+.md h1 { font-size: 22px; } .md h2 { font-size: 18px; } .md h3 { font-size: 15px; }
+.md code { font-family: var(--mono); font-size: 0.88em; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+.md pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow: auto; }
+.md pre code { border: 0; padding: 0; background: none; }
+.md a { color: var(--accent); }
+.md blockquote { border-left: 3px solid var(--line); margin: 0; padding-left: 14px; color: var(--ink-dim); }
+.md table { border-collapse: collapse; } .md th, .md td { border: 1px solid var(--line); padding: 6px 10px; }
+.annot { margin: 8px 0 4px; display: flex; gap: 8px; align-items: flex-start; }
+.annot textarea { flex: 1; background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 8px 10px; resize: vertical; min-height: 34px; }
+.annot textarea:focus { outline: none; }
+.btn.sm { padding: 6px 12px; font-size: 12px; }
+.general { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 18px; }
+.general label { display: block; font-family: var(--mono); font-size: 13px; color: var(--ink-dim); margin-bottom: 8px; }
+.general textarea { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; color: var(--ink); font-family: var(--mono); font-size: 13px; padding: 10px 12px; resize: vertical; min-height: 56px; }
+.general textarea:focus { outline: none; border-color: var(--accent); }
+
 .end { text-align: center; padding: 80px 24px; }
 .end .mark { font-family: var(--mono); font-size: 40px; }
 .end h2 { font-family: var(--mono); font-weight: 600; margin: 16px 0 6px; }

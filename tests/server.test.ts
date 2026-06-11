@@ -115,3 +115,45 @@ test("bin end-to-end: validate → serve → submit → stdout + exit 0", async 
     { decisionId: "auth-method", question: "Which auth methods?", optionId: "magic-link", answer: "Magic link", custom: false },
   ]);
 });
+
+test("bin plan mode: validate → serve → annotate + revise → stdout", async () => {
+  const payload = { title: "Plan", plan: "## Goal\n\nShip it.\n\n## Risks\n\nToken replay." };
+
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "--mode", "plan", "--no-open", "--timeout-ms", "10000"], {
+    cwd: new URL("..", import.meta.url).pathname,
+    stdin: new TextEncoder().encode(JSON.stringify(payload)),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const reader = proc.stderr.getReader();
+  const dec = new TextDecoder();
+  let errText = "";
+  let url: string | undefined;
+  while (!url) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    errText += dec.decode(value);
+    url = errText.match(/review at (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
+  }
+  reader.releaseLock();
+  expect(url).toBeTruthy();
+
+  const html = await (await fetch(url!)).text();
+  const token = html.match(/"token":"([0-9a-f-]+)"/)?.[1];
+
+  const res = await post(url! + "api/submit", {
+    token,
+    decision: "revise",
+    annotations: [{ blockIndex: 1, quote: "## Risks", comment: "also rate-limit /auth/request" }],
+    generalFeedback: "tighten the token TTL",
+  });
+  expect(res.status).toBe(200);
+
+  const out = JSON.parse(await Bun.readableStreamToText(proc.stdout));
+  expect(await proc.exited).toBe(0);
+  expect(out.mode).toBe("plan");
+  expect(out.decision).toBe("revise");
+  expect(out.annotations).toEqual([{ blockIndex: 1, quote: "## Risks", comment: "also rate-limit /auth/request" }]);
+  expect(out.generalFeedback).toBe("tighten the token TTL");
+});

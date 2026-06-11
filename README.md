@@ -102,10 +102,34 @@ bun run check        # typecheck + vitest (logic) + build + bun test (server)
 - `server/primitive.ts` — `startBlockingSingleSubmitServer`, a domain-free
   loopback blocking server (reused by future `plan` mode).
 - `bin/clarinator.ts` — the CLI.
-- `dist/clarity.html` — the committed prebuilt single-file UI. **Rebuild and
+- `dist/app.html` — the committed prebuilt single-file UI. **Rebuild and
   commit it whenever `src/` changes** (`bun run build`).
 
-## Roadmap
+## Plan mode (`--mode plan`)
 
-`--mode plan` (Step 2): render an agent's plan for inline review/annotation,
-reusing the same blocking primitive.
+Step 2 of the SOP, reusing the same blocking primitive. The agent writes a
+`PlanPayload` (`{ title, subtitle?, plan }` where `plan` is Markdown); clarinator
+renders it into commentable blocks. You attach inline comments per block, add
+overall feedback, and either **Approve** or **Request changes**.
+
+```bash
+bunx github:est7/clarinator --mode plan --input plan.json
+```
+
+Result:
+
+```jsonc
+{
+  "mode": "plan",
+  "title": "Login flow — implementation plan",
+  "decision": "revise",
+  "annotations": [
+    { "blockIndex": 4, "quote": "## Risks", "comment": "also rate-limit /auth/request" }
+  ],
+  "generalFeedback": "tighten the token TTL"
+}
+```
+
+Because the plan is derived from the agent's reasoning *after* clarity, Step 1 and
+Step 2 are necessarily separate invocations: clarity blocks → exits → the agent
+synthesizes the plan → plan blocks → exits. The agent orchestrates the handoff.

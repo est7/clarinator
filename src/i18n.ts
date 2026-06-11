@@ -21,6 +21,17 @@ export interface Strings {
   errorBody: string;
   noPayloadTitle: string;
   noPayloadBody: string;
+  // plan mode
+  addComment: string;
+  commentPlaceholder: string;
+  generalFeedback: string;
+  generalFeedbackPlaceholder: string;
+  annotationsCount: (n: number) => string;
+  approve: string;
+  requestChanges: string;
+  approveHint: string;
+  reviseHint: string;
+  remove: string;
 }
 
 const EN: Strings = {
@@ -39,6 +50,16 @@ const EN: Strings = {
   errorBody: "The clarinator server is no longer reachable. Return to your terminal.",
   noPayloadTitle: "No payload",
   noPayloadBody: "This page must be served by the clarinator server.",
+  addComment: "Comment",
+  commentPlaceholder: "What should change here?",
+  generalFeedback: "Overall feedback",
+  generalFeedbackPlaceholder: "Anything not tied to a specific block (optional)",
+  annotationsCount: (n) => (n === 1 ? "1 comment" : `${n} comments`),
+  approve: "Approve",
+  requestChanges: "Request changes",
+  approveHint: "Approve the plan — the agent starts implementing.",
+  reviseHint: "Send your comments back; the agent revises before coding.",
+  remove: "Remove",
 };
 
 const ZH: Strings = {
@@ -57,6 +78,16 @@ const ZH: Strings = {
   errorBody: "clarinator server 已不可达,回到终端查看。",
   noPayloadTitle: "缺少 payload",
   noPayloadBody: "这个页面必须由 clarinator server 提供。",
+  addComment: "批注",
+  commentPlaceholder: "这里要改什么?",
+  generalFeedback: "总体反馈",
+  generalFeedbackPlaceholder: "跟具体段落无关的意见(可选)",
+  annotationsCount: (n) => `${n} 条批注`,
+  approve: "通过",
+  requestChanges: "要求修改",
+  approveHint: "通过方案,agent 开始实现。",
+  reviseHint: "把批注回传给 agent,先改方案再写码。",
+  remove: "删除",
 };
 
 const TABLE: Record<Locale, Strings> = { en: EN, zh: ZH };

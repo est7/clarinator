@@ -16,7 +16,7 @@
     "schemas"
   ],
   "scripts": {
-    "build": "vite build && mv -f dist/index.html dist/clarity.html",
+    "build": "vite build && mv -f dist/index.html dist/app.html",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:server": "bun test tests/",
@@ -25,12 +25,13 @@
     "serve": "bun bin/clarinator.ts",
     "dev": "vite"
   },
-  "comment": "react/react-dom are devDependencies: the CLI/server never import them; they are only needed to build dist/clarity.html, which is committed. This keeps `bunx github:est7/clarinator` a zero-dependency install at consume time.",
+  "comment": "react/react-dom/marked are devDependencies: the CLI/server never import them; they are only needed to build dist/app.html, which is committed. This keeps `bunx github:est7/clarinator` a zero-dependency install at consume time.",
   "devDependencies": {
     "@types/bun": "^1.2.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "marked": "^15.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "happy-dom": "^20.0.0",
