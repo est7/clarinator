@@ -111,7 +111,7 @@ input:focus-visible {
   font-family: var(--serif);
   font-size: 17px;
   font-weight: 400;
-  line-height: 1.35;
+  line-height: 1.58;
   font-feature-settings: "cswh";
 }
 
@@ -124,7 +124,7 @@ input:focus-visible {
   color: var(--ink-dim);
   font-family: var(--mono);
   font-size: 12px;
-  line-height: 1.66;
+  line-height: 1.78;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -177,7 +177,7 @@ input:focus-visible {
   color: var(--ink-dim);
   font-family: var(--serif);
   font-size: 16px;
-  line-height: 1.42;
+  line-height: 1.68;
   font-feature-settings: "cswh";
 }
 
@@ -243,7 +243,7 @@ input:focus-visible {
   color: var(--ink-dim);
   font-family: var(--serif);
   font-size: 15px;
-  line-height: 1.34;
+  line-height: 1.62;
   font-feature-settings: "cswh";
 }
 
@@ -252,7 +252,7 @@ input:focus-visible {
   color: var(--ink-faint);
   font-family: var(--mono);
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.62;
 }
 
 .badge-rec {
@@ -448,7 +448,7 @@ input:focus-visible {
   color: var(--ink);
   font-family: var(--serif);
   font-size: 16px;
-  line-height: 1.55;
+  line-height: 1.72;
   font-feature-settings: "cswh";
   overflow-wrap: anywhere;
 }
@@ -482,7 +482,7 @@ input:focus-visible {
 .md blockquote,
 .md pre,
 .md table {
-  margin: 10px 0;
+  margin: 13px 0;
 }
 
 .md code {
