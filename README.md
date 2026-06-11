@@ -10,7 +10,7 @@ Built to be run on demand — no install step in your project:
 ```bash
 bunx github:est7/clarinator --mode clarity --input payload.json
 # or pin a version:
-bunx github:est7/clarinator@v0.1.0 --mode clarity --input payload.json
+bunx github:est7/clarinator@v0.2.0 --mode clarity --input payload.json
 ```
 
 Requires **bun** on the host (`curl -fsSL https://bun.sh/install | bash`).
