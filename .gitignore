@@ -3,3 +3,8 @@ node_modules/
 .DS_Store
 .vite/
 coverage/
+
+# The prebuilt single-file UI is committed and shipped in the package (the CLI
+# reads it at runtime). Override any global `dist/` ignore.
+!dist/
+!dist/app.html
