@@ -1,0 +1,47 @@
+{
+  "title": "Login PRD",
+  "subtitle": "v1 · B2C",
+  "context": "Email-first signup, magic-link primary. Token TTL, session model, and SSO scope are undecided and need to converge before implementation.",
+  "decisions": [
+    {
+      "id": "auth-method",
+      "question": "Which auth methods for v1?",
+      "recommendation_reason": "Spec twice mentions 'low friction' and a B2C audience; magic link hits both. Passwords drag in recovery flows, SSO drags in integration cost — neither worth it for v1.",
+      "allow_custom": true,
+      "options": [
+        { "id": "magic-link", "label": "Magic link only", "description": "Passwordless email login.", "recommended": true, "reason": "Lowest friction, smallest attack surface." },
+        { "id": "password", "label": "Password + magic link", "description": "User picks at signup.", "recommended": false, "reason": "Only worth it under a compliance mandate." }
+      ]
+    },
+    {
+      "id": "password-strength",
+      "question": "Password policy?",
+      "recommendation_reason": "Only in scope once passwords exist; a moderate policy balances security and friction.",
+      "show_if": { "decision": "auth-method", "in": ["password"] },
+      "options": [
+        { "id": "lenient", "label": "8+ chars, no composition rules", "recommended": true, "reason": "NIST-aligned, low friction." },
+        { "id": "strict", "label": "12+ chars, breach-check", "recommended": false }
+      ]
+    },
+    {
+      "id": "breach-check",
+      "question": "Check passwords against a breached-credential database?",
+      "recommendation_reason": "Strict policy implies you care about credential stuffing; HIBP-style checks are cheap.",
+      "show_if": { "decision": "password-strength", "in": ["strict"] },
+      "options": [
+        { "id": "yes", "label": "Yes, block known-breached passwords", "recommended": true },
+        { "id": "no", "label": "No", "recommended": false }
+      ]
+    },
+    {
+      "id": "session-model",
+      "question": "Session model?",
+      "recommendation_reason": "Spec implies a single-page web client with no third-party API consumers yet, so a server session is simpler and revocable.",
+      "allow_custom": true,
+      "options": [
+        { "id": "server-session", "label": "Server session + httpOnly cookie", "recommended": true, "reason": "Revocable, simplest for a first-party web client." },
+        { "id": "jwt", "label": "Stateless JWT", "recommended": false, "reason": "Only worth it with multiple resource servers." }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "clarinator",
+  "version": "0.1.0",
+  "description": "Interactive clarify-before-you-code gate: serve a branching decision tree (or a plan) in the browser, block the agent on one structured submit, print the result to stdout. Run via `bunx github:est7/clarinator`.",
+  "type": "module",
+  "license": "MIT",
+  "author": "est7",
+  "bin": {
+    "clarinator": "./bin/clarinator.ts"
+  },
+  "files": [
+    "bin",
+    "server",
+    "src",
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "vite build && mv -f dist/index.html dist/clarity.html",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:server": "bun test tests/",
+    "check": "bun run typecheck && bun run test && bun run build && bun run test:server",
+    "typecheck": "tsc --noEmit",
+    "serve": "bun bin/clarinator.ts",
+    "dev": "vite"
+  },
+  "comment": "react/react-dom are devDependencies: the CLI/server never import them; they are only needed to build dist/clarity.html, which is committed. This keeps `bunx github:est7/clarinator` a zero-dependency install at consume time.",
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "happy-dom": "^20.0.0",
+    "typescript": "~5.8.0",
+    "vite": "^6.2.0",
+    "vite-plugin-singlefile": "^2.0.3",
+    "vitest": "^3.0.0"
+  },
+  "packageManager": "bun@1.3.14"
+}
