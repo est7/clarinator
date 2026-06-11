@@ -6,7 +6,8 @@
 export type SubmitOutcome<R> =
   | { status: "submitted"; result: R }
   | { status: "cancelled" }
-  | { status: "timeout" };
+  | { status: "timeout" }
+  | { status: "error"; error: string };
 
 export interface BlockingServerOptions<R> {
   html: string;
@@ -22,7 +23,7 @@ export interface BlockingServer<R> {
   url: string;
   port: number;
   done: Promise<SubmitOutcome<R>>;
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -71,7 +72,15 @@ export function startBlockingSingleSubmitServer<R>(opts: BlockingServerOptions<R
       if (req.method === "POST" && url.pathname === "/api/submit") {
         const { ok, body } = await readToken(req);
         if (!ok) return json({ error: "bad token" }, 403);
-        const verdict = opts.onSubmit(body);
+        let verdict: { ok: true; result: R } | { ok: false; error: string };
+        try {
+          verdict = opts.onSubmit(body);
+        } catch (e) {
+          // A throw from onSubmit is a server bug, not user error — fail fast
+          // instead of leaving the foreground command blocked until timeout.
+          finish({ status: "error", error: e instanceof Error ? e.message : String(e) });
+          return json({ error: "internal error" }, 500);
+        }
         if (!verdict.ok) return json({ error: verdict.error }, 422);
         finish({ status: "submitted", result: verdict.result });
         return json({ ok: true });
@@ -93,9 +102,12 @@ export function startBlockingSingleSubmitServer<R>(opts: BlockingServerOptions<R
     url: `http://${hostname}:${port}/`,
     port,
     done,
+    // Graceful stop: drain in-flight requests (the submit/cancel ACK) before
+    // closing, so the browser reliably receives the response — deterministic,
+    // not a timing guess. Returns a promise the caller can await.
     stop: () => {
       clearTimeout(timer);
-      server.stop(true);
+      return server.stop();
     },
   };
 }

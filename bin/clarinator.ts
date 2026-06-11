@@ -9,7 +9,7 @@
 // Exit codes: 0 submitted · 2 usage/validation error · 3 cancelled · 4 timeout.
 
 import { validatePayload, validatePlanPayload, ValidationError } from "../src/validate.ts";
-import { buildResult, isComplete } from "../src/reducer.ts";
+import { buildResult, validateAnswers } from "../src/reducer.ts";
 import type {
   Answer,
   Answers,
@@ -21,6 +21,12 @@ import type {
   PlanSubmission,
 } from "../src/types.ts";
 import { startBlockingSingleSubmitServer, type BlockingServerOptions } from "../server/primitive.ts";
+// Embedded at build/compile time so the compiled binary is fully self-contained
+// (no runtime dependency on a sibling dist/ directory). In source mode bun reads
+// the committed dist/app.html at run time. `type: "text"` yields a string at
+// runtime; bun's types annotate it as HTMLBundle, hence the cast.
+import appHtmlRaw from "../dist/app.html" with { type: "text" };
+const appHtml = appHtmlRaw as unknown as string;
 
 interface Args {
   mode: string;
@@ -86,21 +92,13 @@ function sanitizeAnswers(payload: ClarityPayload, raw: unknown): Answers {
   return out;
 }
 
-async function loadHtml(): Promise<string> {
-  // Resolve relative to THIS module (not cwd) so it works from the installed
-  // package dir under bunx. Built by `vite build` and committed.
-  const file = Bun.file(new URL("../dist/app.html", import.meta.url));
-  if (!(await file.exists())) {
-    fail("dist/app.html not found — run `bun run build` (or the published package is incomplete)");
+function inject(boot: Bootstrap): string {
+  if (!appHtml || !appHtml.includes("</head>")) {
+    fail("embedded UI (dist/app.html) is missing or has no </head> sentinel — run `bun run build` before compiling");
   }
-  return file.text();
-}
-
-function inject(html: string, boot: Bootstrap): string {
   const safe = JSON.stringify(boot).replace(/</g, "\\u003c");
   const tag = `<script>window.__CLARINATOR__ = ${safe};</script>`;
-  if (!html.includes("</head>")) fail("dist/app.html missing </head> sentinel");
-  return html.replace("</head>", `${tag}</head>`);
+  return appHtml.replace("</head>", `${tag}</head>`);
 }
 
 function openBrowser(url: string): void {
@@ -123,7 +121,8 @@ function prepareClarity(payload: ClarityPayload, token: string, locale?: string)
     boot: { mode: "clarity", token, locale, payload },
     onSubmit: (body) => {
       const answers = sanitizeAnswers(payload, (body as Record<string, unknown>).answers);
-      if (!isComplete(payload, answers)) return { ok: false, error: "not all active decisions answered" };
+      const verdict = validateAnswers(payload, answers);
+      if (!verdict.ok) return verdict;
       return { ok: true, result: { mode: "clarity", title: payload.title, result: buildResult(payload, answers) } };
     },
   };
@@ -136,10 +135,17 @@ function sanitizeAnnotations(raw: unknown): PlanAnnotation[] {
   for (const item of raw) {
     if (typeof item !== "object" || item === null) continue;
     const a = item as Record<string, unknown>;
-    if (typeof a.blockIndex === "number" && typeof a.comment === "string" && a.comment.trim()) {
+    if (
+      typeof a.blockIndex === "number" &&
+      Number.isInteger(a.blockIndex) &&
+      a.blockIndex >= 0 &&
+      typeof a.comment === "string" &&
+      a.comment.trim()
+    ) {
       out.push({
         blockIndex: a.blockIndex,
-        quote: typeof a.quote === "string" ? a.quote : "",
+        // quote is a client-provided excerpt for the agent's convenience; cap it.
+        quote: typeof a.quote === "string" ? a.quote.slice(0, 200) : "",
         comment: a.comment.trim(),
       });
     }
@@ -184,7 +190,7 @@ async function main() {
   const args = parseArgs(Bun.argv.slice(2));
   const token = crypto.randomUUID();
   const { boot, onSubmit } = await prepare(args, token);
-  const html = inject(await loadHtml(), boot);
+  const html = inject(boot);
 
   const server = startBlockingSingleSubmitServer<Submission>({ html, token, timeoutMs: args.timeoutMs, onSubmit });
 
@@ -192,16 +198,21 @@ async function main() {
   if (args.open) openBrowser(server.url);
 
   const outcome = await server.done;
-  // Let the HTTP ack flush to the browser (so it shows the end screen) before we
-  // tear down the listener — otherwise stop() races the response into ECONNRESET.
-  await Bun.sleep(400);
-  server.stop();
+  // Graceful stop drains the in-flight submit/cancel ACK before closing, so the
+  // browser reliably shows its end screen. The small sleep only lets the browser
+  // paint that screen; correctness comes from the graceful drain, not the timing.
+  await Bun.sleep(150);
+  await server.stop();
 
   if (outcome.status === "submitted") {
     const text = JSON.stringify(outcome.result, null, 2);
     if (args.out) await Bun.write(args.out, text);
     process.stdout.write(text + "\n");
     process.exit(0);
+  }
+  if (outcome.status === "error") {
+    process.stderr.write(`clarinator: internal error handling submission: ${outcome.error}\n`);
+    process.exit(2);
   }
   process.stdout.write(JSON.stringify({ status: outcome.status }) + "\n");
   process.exit(outcome.status === "cancelled" ? 3 : 4);

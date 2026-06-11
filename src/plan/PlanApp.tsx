@@ -4,6 +4,7 @@ import type { PlanAnnotation, PlanBootstrap } from "../types.ts";
 import { resolveLocale, strings } from "../i18n.ts";
 import { useReview } from "../useReview.ts";
 import { EndScreen } from "../components/EndScreen.tsx";
+import { sanitizeHtml } from "./sanitize.ts";
 
 interface Block {
   html: string;
@@ -19,7 +20,7 @@ function planBlocks(md: string): Block[] {
     const raw = ("raw" in tok ? tok.raw : "") || "";
     const text = raw.replace(/\s+/g, " ").trim();
     if (!text) continue;
-    blocks.push({ html: marked.parser([tok]), quote: text.slice(0, 100) });
+    blocks.push({ html: sanitizeHtml(marked.parser([tok])), quote: text.slice(0, 100) });
   }
   return blocks;
 }

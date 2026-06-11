@@ -72,6 +72,34 @@ export function isComplete(payload: ClarityPayload, answers: Answers): boolean {
 }
 
 /**
+ * Server-side trust gate: validate a submitted answer set against the payload
+ * contract. Rejects unknown options, custom answers where `allow_custom` is not
+ * set, blank custom answers, answers for inactive decisions, and incomplete sets.
+ * The frontend can never produce these, but `/api/submit` is a trust boundary
+ * (stale build, manual POST, XSS) so the server re-checks.
+ */
+export function validateAnswers(
+  payload: ClarityPayload,
+  answers: Answers,
+): { ok: true } | { ok: false; error: string } {
+  const byId = new Map(payload.decisions.map((d) => [d.id, d]));
+  const active = activeDecisionIds(payload, answers);
+  for (const [id, ans] of Object.entries(answers)) {
+    const dec = byId.get(id);
+    if (!dec) return { ok: false, error: `answer for unknown decision ${id}` };
+    if (!active.has(id)) return { ok: false, error: `answer for inactive decision ${id}` };
+    if (ans.kind === "custom") {
+      if (!dec.allow_custom) return { ok: false, error: `custom answer not allowed for ${id}` };
+      if (!ans.value.trim()) return { ok: false, error: `blank custom answer for ${id}` };
+    } else if (!dec.options.some((o) => o.id === ans.optionId)) {
+      return { ok: false, error: `unknown option ${ans.optionId} for decision ${id}` };
+    }
+  }
+  if (!isComplete(payload, answers)) return { ok: false, error: "not all active decisions answered" };
+  return { ok: true };
+}
+
+/**
  * Build the submitted result: one item per ACTIVE decision, in order. Inactive
  * decisions are excluded. Throws if any active decision is unanswered — callers
  * must gate on `isComplete` first (the server re-checks as a trust boundary).
@@ -87,11 +115,12 @@ export function buildResult(payload: ClarityPayload, answers: Answers): ResultIt
       return { decisionId: dec.id, question: dec.question, optionId: null, answer: ans.value.trim(), custom: true };
     }
     const opt = dec.options.find((o) => o.id === ans.optionId);
+    if (!opt) throw new Error(`unknown option ${ans.optionId} for decision ${dec.id}`);
     return {
       decisionId: dec.id,
       question: dec.question,
       optionId: ans.optionId,
-      answer: opt ? opt.label : ans.optionId,
+      answer: opt.label,
       custom: false,
     };
   });

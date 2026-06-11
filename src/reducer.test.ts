@@ -7,6 +7,7 @@ import {
   isComplete,
   missing,
   prune,
+  validateAnswers,
 } from "./reducer.ts";
 
 // A two-level tree:
@@ -164,5 +165,41 @@ describe("buildResult", () => {
 
   it("throws when an active decision is unanswered", () => {
     expect(() => buildResult(tree, { "auth-method": pick("magic-link") })).toThrow(/unanswered/);
+  });
+});
+
+describe("validateAnswers (server trust boundary)", () => {
+  const good: Answers = { "auth-method": pick("magic-link"), "session-model": pick("jwt") };
+
+  it("accepts a valid, complete answer set", () => {
+    expect(validateAnswers(tree, good)).toEqual({ ok: true });
+  });
+
+  it("rejects an option id that does not exist on the decision", () => {
+    expect(validateAnswers(tree, { ...good, "auth-method": pick("not-a-real-option") })).toMatchObject({ ok: false });
+  });
+
+  it("rejects a custom answer where allow_custom is not set", () => {
+    const a: Answers = { ...good, "auth-method": { kind: "custom", value: "webauthn" } };
+    expect(validateAnswers(tree, a)).toMatchObject({ ok: false, error: /custom answer not allowed/ });
+  });
+
+  it("accepts a custom answer where allow_custom is set", () => {
+    const a: Answers = { "auth-method": pick("magic-link"), "session-model": { kind: "custom", value: "paseto" } };
+    expect(validateAnswers(tree, a)).toEqual({ ok: true });
+  });
+
+  it("rejects a blank custom answer", () => {
+    const a: Answers = { "auth-method": pick("magic-link"), "session-model": { kind: "custom", value: "   " } };
+    expect(validateAnswers(tree, a)).toMatchObject({ ok: false });
+  });
+
+  it("rejects an answer for an inactive decision", () => {
+    const a: Answers = { ...good, "password-strength": pick("strict") };
+    expect(validateAnswers(tree, a)).toMatchObject({ ok: false, error: /inactive/ });
+  });
+
+  it("rejects an incomplete set", () => {
+    expect(validateAnswers(tree, { "auth-method": pick("magic-link") })).toMatchObject({ ok: false });
   });
 });

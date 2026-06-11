@@ -8,3 +8,7 @@ coverage/
 # reads it at runtime). Override any global `dist/` ignore.
 !dist/
 !dist/app.html
+
+# bun --compile scratch
+*.bun-build
+.*.bun-build

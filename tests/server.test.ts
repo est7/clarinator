@@ -58,6 +58,22 @@ test("timeout resolves with timeout", async () => {
   srv.stop();
 });
 
+test("onSubmit throwing fails fast with an error outcome (no hang to timeout)", async () => {
+  const srv = startBlockingSingleSubmitServer({
+    html: "<html></html>",
+    token: "tok",
+    timeoutMs: 60000, // long: if the throw were swallowed, the test would hang
+    onSubmit: () => {
+      throw new Error("boom");
+    },
+  });
+  const res = await post(srv.url + "api/submit", { token: "tok", answers: {} });
+  expect(res.status).toBe(500);
+  const outcome = await srv.done;
+  expect(outcome).toEqual({ status: "error", error: "boom" });
+  srv.stop();
+});
+
 test("bin end-to-end: validate → serve → submit → stdout + exit 0", async () => {
   const payload = {
     title: "Login PRD",
