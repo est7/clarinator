@@ -3,14 +3,20 @@
 // single-file UI on loopback, block until the user submits/cancels (or it times
 // out), print the structured result to stdout, exit. The agent reads stdout.
 //
-//   clarinator --mode clarity --input payload.json [--out answers.json]
-//              [--timeout-ms 1800000] [--locale zh] [--no-open]
+//   clarinator clarity up --input payload.json [--out answers.json]
+//                  [--timeout-ms 1800000] [--locale zh] [--no-open]
+//   clarinator clarity down
+//   clarinator plan up --input payload.json [--out answers.json]
+//   clarinator plan down
 //
 // Exit codes: 0 submitted · 2 usage/validation error · 3 cancelled · 4 timeout.
 
 import { validatePayload, validatePlanPayload, ValidationError } from "../src/validate.ts";
 import { buildResult, validateAnswers } from "../src/reducer.ts";
 import { injectBootstrap } from "../src/bootstrapHtml.ts";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
   Answer,
   Answers,
@@ -29,8 +35,12 @@ import { startBlockingSingleSubmitServer, type BlockingServerOptions } from "../
 import appHtmlRaw from "../dist/app.html" with { type: "text" };
 const appHtml = appHtmlRaw as unknown as string;
 
+type Mode = "clarity" | "plan";
+type Action = "up" | "down";
+
 interface Args {
-  mode: string;
+  mode: Mode;
+  action: Action;
   input?: string;
   out?: string;
   timeoutMs: number;
@@ -39,8 +49,12 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const a: Args = { mode: "clarity", timeoutMs: 30 * 60 * 1000, open: true };
-  for (let i = 0; i < argv.length; i++) {
+  const [modeRaw, actionRaw] = argv;
+  if (modeRaw !== "clarity" && modeRaw !== "plan") failUsage();
+  if (actionRaw !== "up" && actionRaw !== "down") failUsage();
+
+  const a: Args = { mode: modeRaw, action: actionRaw, timeoutMs: 30 * 60 * 1000, open: true };
+  for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     const next = () => {
       const v = argv[++i];
@@ -48,7 +62,6 @@ function parseArgs(argv: string[]): Args {
       return v as string;
     };
     switch (k) {
-      case "--mode": a.mode = next(); break;
       case "--input": a.input = next(); break;
       case "--out": a.out = next(); break;
       case "--timeout-ms": a.timeoutMs = Number(next()); break;
@@ -58,7 +71,15 @@ function parseArgs(argv: string[]): Args {
     }
   }
   if (!Number.isFinite(a.timeoutMs) || a.timeoutMs <= 0) fail("--timeout-ms must be a positive number");
+  if (a.action === "up" && !a.input) fail("up requires --input <payload.json>");
+  if (a.action === "down" && (a.input || a.out || a.locale || !a.open || a.timeoutMs !== 30 * 60 * 1000)) {
+    fail("down accepts no flags");
+  }
   return a;
+}
+
+function failUsage(): never {
+  fail("usage: clarinator <clarity|plan> <up|down> [--input payload.json] [--locale zh] [--timeout-ms ms] [--no-open]");
 }
 
 function fail(msg: string): never {
@@ -95,7 +116,9 @@ function sanitizeAnswers(payload: ClarityPayload, raw: unknown): Answers {
 
 function inject(boot: Bootstrap): string {
   try {
-    return injectBootstrap(appHtml, boot);
+    const html = injectBootstrap(appHtml, boot);
+    if (!html.includes("<script>window.__CLARINATOR__")) fail("embedded UI bootstrap injection failed");
+    return html;
   } catch {
     fail("embedded UI (dist/app.html) is missing or has no </head> sentinel — run `bun run build` before compiling");
   }
@@ -120,10 +143,24 @@ function prepareClarity(payload: ClarityPayload, token: string, locale?: string)
   return {
     boot: { mode: "clarity", token, locale, payload },
     onSubmit: (body) => {
-      const answers = sanitizeAnswers(payload, (body as Record<string, unknown>).answers);
+      const b = body as Record<string, unknown>;
+      const action = b.action === "continue" ? "continue" : "done";
+      if (action === "continue" && payload.flow === undefined) return { ok: false, error: "continue action requires payload.flow" };
+      if (action === "done" && payload.flow?.allow_done === false) return { ok: false, error: "done action is disabled for this page" };
+      const answers = sanitizeAnswers(payload, b.answers);
       const verdict = validateAnswers(payload, answers);
       if (!verdict.ok) return verdict;
-      return { ok: true, result: { mode: "clarity", title: payload.title, result: buildResult(payload, answers) } };
+      return {
+        ok: true,
+        result: {
+          mode: "clarity",
+          title: payload.title,
+          action,
+          ...(payload.flow?.session_id ? { sessionId: payload.flow.session_id } : {}),
+          ...(payload.flow?.page_id ? { pageId: payload.flow.page_id } : {}),
+          result: buildResult(payload, answers),
+        },
+      };
     },
   };
 }
@@ -183,17 +220,94 @@ async function prepare(args: Args, token: string): Promise<{ boot: Bootstrap; on
     if (e instanceof ValidationError) fail(`payload validation failed: ${e.message}`);
     throw e;
   }
-  return fail(`unknown mode ${JSON.stringify(args.mode)} (expected "clarity" or "plan")`);
+  return fail(`unknown mode ${JSON.stringify(args.mode)}`);
 }
 
-async function main() {
-  const args = parseArgs(Bun.argv.slice(2));
+interface SessionState {
+  mode: Mode;
+  url: string;
+  token: string;
+  pid: number;
+  startedAt: string;
+}
+
+function stateDir(): string {
+  return process.env.CLARINATOR_STATE_DIR || join(homedir(), ".cache", "clarinator", "state");
+}
+
+function statePath(mode: Mode): string {
+  return join(stateDir(), `${mode}.json`);
+}
+
+async function readState(mode: Mode): Promise<SessionState | null> {
+  try {
+    return JSON.parse(await readFile(statePath(mode), "utf8")) as SessionState;
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "ENOENT") return null;
+    await rm(statePath(mode), { force: true });
+    fail(`${mode} session state was invalid and has been removed`);
+  }
+}
+
+async function writeState(state: SessionState): Promise<void> {
+  await mkdir(stateDir(), { recursive: true, mode: 0o700 });
+  await writeFile(statePath(state.mode), JSON.stringify(state, null, 2), { mode: 0o600 });
+}
+
+async function clearState(mode: Mode, pid?: number): Promise<void> {
+  if (pid !== undefined) {
+    const current = await readState(mode);
+    if (current && current.pid !== pid) return;
+  }
+  await rm(statePath(mode), { force: true });
+}
+
+async function runDown(mode: Mode): Promise<never> {
+  const state = await readState(mode);
+  if (!state) {
+    process.stderr.write(`clarinator: no active ${mode} session\n`);
+    process.exit(0);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(new URL("api/cancel", state.url), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: state.token }),
+    });
+  } catch {
+    await clearState(mode, state.pid);
+    process.stderr.write(`clarinator: removed stale ${mode} session\n`);
+    process.exit(0);
+  }
+
+  if (res.status === 403) fail(`${mode} session rejected cancel token`);
+  if (!res.ok) fail(`${mode} cancel failed with HTTP ${res.status}`);
+  await clearState(mode, state.pid);
+  process.stderr.write(`clarinator: ${mode} session cancelled\n`);
+  process.exit(0);
+}
+
+async function runUp(args: Args): Promise<never> {
   const token = crypto.randomUUID();
   const { boot, onSubmit } = await prepare(args, token);
   const html = inject(boot);
 
   const server = startBlockingSingleSubmitServer<Submission>({ html, token, timeoutMs: args.timeoutMs, onSubmit });
+  const cleanup = async () => {
+    await clearState(args.mode, process.pid);
+    await server.stop();
+  };
 
+  process.on("SIGINT", () => {
+    cleanup().finally(() => process.exit(130));
+  });
+  process.on("SIGTERM", () => {
+    cleanup().finally(() => process.exit(143));
+  });
+
+  await writeState({ mode: args.mode, url: server.url, token, pid: process.pid, startedAt: new Date().toISOString() });
   process.stderr.write(`clarinator: review at ${server.url}\n`);
   if (args.open) openBrowser(server.url);
 
@@ -202,7 +316,7 @@ async function main() {
   // browser reliably shows its end screen. The small sleep only lets the browser
   // paint that screen; correctness comes from the graceful drain, not the timing.
   await Bun.sleep(150);
-  await server.stop();
+  await cleanup();
 
   if (outcome.status === "submitted") {
     const text = JSON.stringify(outcome.result, null, 2);
@@ -216,6 +330,12 @@ async function main() {
   }
   process.stdout.write(JSON.stringify({ status: outcome.status }) + "\n");
   process.exit(outcome.status === "cancelled" ? 3 : 4);
+}
+
+async function main() {
+  const args = parseArgs(Bun.argv.slice(2));
+  if (args.action === "down") await runDown(args.mode);
+  await runUp(args);
 }
 
 main();

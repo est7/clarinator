@@ -1,10 +1,68 @@
 // Bun-runtime tests (Bun.serve / Bun.spawn are unavailable under vitest/node).
 // Run with `bun test tests/`. Pure-logic tests live in src/**.test.ts (vitest).
 import { test, expect } from "bun:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startBlockingSingleSubmitServer } from "../server/primitive.ts";
 
 const post = (url: string, body: unknown) =>
   fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+const root = new URL("..", import.meta.url).pathname;
+
+async function writePayload(payload: unknown): Promise<{ stateDir: string; payloadPath: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "clarinator-test-"));
+  const payloadPath = join(dir, "payload.json");
+  await writeFile(payloadPath, JSON.stringify(payload), "utf8");
+  return { stateDir: join(dir, "state"), payloadPath };
+}
+
+async function readReviewUrl(proc: ReturnType<typeof Bun.spawn>): Promise<string> {
+  const reader = proc.stderr.getReader();
+  const dec = new TextDecoder();
+  let errText = "";
+  let url: string | undefined;
+  while (!url) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    errText += dec.decode(value);
+    url = errText.match(/review at (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
+  }
+  reader.releaseLock();
+  expect(url).toBeTruthy();
+  return url!;
+}
+
+async function bootstrapToken(url: string): Promise<string> {
+  const html = await (await fetch(url)).text();
+  expect(html).toContain("<script>window.__CLARINATOR__");
+  const token = html.match(/"token":"([0-9a-f-]+)"/)?.[1];
+  expect(token).toBeTruthy();
+  return token!;
+}
+
+async function runClarityPage(
+  payloadPath: string,
+  stateDir: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const url = await readReviewUrl(proc);
+  const token = await bootstrapToken(url);
+  const res = await post(url + "api/submit", { token, ...body });
+  expect(res.status).toBe(200);
+
+  const out = JSON.parse(await Bun.readableStreamToText(proc.stdout));
+  expect(await proc.exited).toBe(0);
+  return out;
+}
 
 test("submit resolves with the onSubmit result", async () => {
   const srv = startBlockingSingleSubmitServer({
@@ -74,7 +132,7 @@ test("onSubmit throwing fails fast with an error outcome (no hang to timeout)", 
   srv.stop();
 });
 
-test("bin end-to-end: validate → serve → submit → stdout + exit 0", async () => {
+test("bin clarity up: validate → serve → submit → stdout + exit 0", async () => {
   const payload = {
     title: "Login PRD",
     context: "context",
@@ -91,34 +149,18 @@ test("bin end-to-end: validate → serve → submit → stdout + exit 0", async 
     ],
   };
 
-  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "--mode", "clarity", "--no-open", "--timeout-ms", "10000"], {
-    cwd: new URL("..", import.meta.url).pathname,
-    stdin: new TextEncoder().encode(JSON.stringify(payload)),
+  const { stateDir, payloadPath } = await writePayload(payload);
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  // Read stderr incrementally until the URL appears (the process keeps running,
-  // so draining to EOF would hang).
-  const reader = proc.stderr.getReader();
-  const dec = new TextDecoder();
-  let errText = "";
-  let url: string | undefined;
-  while (!url) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    errText += dec.decode(value);
-    url = errText.match(/review at (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
-  }
-  reader.releaseLock();
-  expect(url).toBeTruthy();
+  const url = await readReviewUrl(proc);
+  const token = await bootstrapToken(url);
 
-  // Pull the token out of the injected bootstrap.
-  const html = await (await fetch(url!)).text();
-  const token = html.match(/"token":"([0-9a-f-]+)"/)?.[1];
-  expect(token).toBeTruthy();
-
-  const res = await post(url! + "api/submit", {
+  const res = await post(url + "api/submit", {
     token,
     answers: { "auth-method": { kind: "option", optionId: "magic-link" } },
   });
@@ -127,38 +169,147 @@ test("bin end-to-end: validate → serve → submit → stdout + exit 0", async 
   const out = JSON.parse(await Bun.readableStreamToText(proc.stdout));
   expect(await proc.exited).toBe(0);
   expect(out.mode).toBe("clarity");
+  expect(out.action).toBe("done");
   expect(out.result).toEqual([
     { decisionId: "auth-method", question: "Which auth methods?", optionId: "magic-link", answer: "Magic link", custom: false },
   ]);
 });
 
-test("bin plan mode: validate → serve → annotate + revise → stdout", async () => {
-  const payload = { title: "Plan", plan: "## Goal\n\nShip it.\n\n## Risks\n\nToken replay." };
+test("bin clarity flow: continue returns page result for the agent to generate the next payload", async () => {
+  const payload = {
+    title: "Login PRD",
+    context: "Pick the first page scope.",
+    flow: {
+      session_id: "login-prd",
+      page_id: "scope",
+      page_title: "Page 1: Scope",
+      continue_label: "Next page",
+      done_label: "Done",
+    },
+    decisions: [
+      {
+        id: "auth-method",
+        question: "Which auth methods?",
+        recommendation_reason: "reason long enough to pass",
+        options: [
+          { id: "magic-link", label: "Magic link", recommended: true },
+          { id: "password", label: "Password", recommended: false },
+        ],
+      },
+    ],
+  };
 
-  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "--mode", "plan", "--no-open", "--timeout-ms", "10000"], {
-    cwd: new URL("..", import.meta.url).pathname,
-    stdin: new TextEncoder().encode(JSON.stringify(payload)),
+  const { stateDir, payloadPath } = await writePayload(payload);
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  const reader = proc.stderr.getReader();
-  const dec = new TextDecoder();
-  let errText = "";
-  let url: string | undefined;
-  while (!url) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    errText += dec.decode(value);
-    url = errText.match(/review at (http:\/\/127\.0\.0\.1:\d+\/)/)?.[1];
-  }
-  reader.releaseLock();
-  expect(url).toBeTruthy();
+  const url = await readReviewUrl(proc);
+  const token = await bootstrapToken(url);
 
-  const html = await (await fetch(url!)).text();
-  const token = html.match(/"token":"([0-9a-f-]+)"/)?.[1];
+  const res = await post(url + "api/submit", {
+    token,
+    action: "continue",
+    answers: { "auth-method": { kind: "option", optionId: "password" } },
+  });
+  expect(res.status).toBe(200);
 
-  const res = await post(url! + "api/submit", {
+  const out = JSON.parse(await Bun.readableStreamToText(proc.stdout));
+  expect(await proc.exited).toBe(0);
+  expect(out).toMatchObject({
+    mode: "clarity",
+    title: "Login PRD",
+    action: "continue",
+    sessionId: "login-prd",
+    pageId: "scope",
+    result: [{ decisionId: "auth-method", optionId: "password", answer: "Password", custom: false }],
+  });
+});
+
+test("bin clarity flow examples: page1 continue, agent-provided page2 done", async () => {
+  const stateDir = join(await mkdtemp(join(tmpdir(), "clarinator-flow-e2e-")), "state");
+
+  const page1 = await runClarityPage(join(root, "examples", "clarity-flow-page1.json"), stateDir, {
+    action: "continue",
+    answers: { "auth-method": { kind: "option", optionId: "password" } },
+  });
+  expect(page1).toMatchObject({
+    mode: "clarity",
+    action: "continue",
+    sessionId: "login-prd",
+    pageId: "entry-path",
+    result: [{ decisionId: "auth-method", optionId: "password", answer: "Password plus magic link", custom: false }],
+  });
+
+  const page2 = await runClarityPage(join(root, "examples", "clarity-flow-page2-password.json"), stateDir, {
+    action: "done",
+    answers: {
+      "password-strength": { kind: "option", optionId: "lenient" },
+      "recovery-flow": { kind: "option", optionId: "magic-link-reset" },
+    },
+  });
+  expect(page2).toMatchObject({
+    mode: "clarity",
+    action: "done",
+    sessionId: "login-prd",
+    pageId: "password-details",
+    result: [
+      { decisionId: "password-strength", optionId: "lenient", answer: "8+ characters, no composition rules", custom: false },
+      { decisionId: "recovery-flow", optionId: "magic-link-reset", answer: "Use magic link as reset", custom: false },
+    ],
+  });
+});
+
+test("bin clarity flow rejects done when the page requires continue", async () => {
+  const stateDir = join(await mkdtemp(join(tmpdir(), "clarinator-flow-e2e-")), "state");
+  const proc = Bun.spawn([
+    "bun",
+    "bin/clarinator.ts",
+    "clarity",
+    "up",
+    "--input",
+    join(root, "examples", "clarity-flow-page1.json"),
+    "--no-open",
+    "--timeout-ms",
+    "10000",
+  ], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const url = await readReviewUrl(proc);
+  const token = await bootstrapToken(url);
+  const res = await post(url + "api/submit", {
+    token,
+    action: "done",
+    answers: { "auth-method": { kind: "option", optionId: "password" } },
+  });
+  expect(res.status).toBe(422);
+
+  await post(url + "api/cancel", { token });
+  expect(await proc.exited).toBe(3);
+});
+
+test("bin plan up: validate → serve → annotate + revise → stdout", async () => {
+  const payload = { title: "Plan", plan: "## Goal\n\nShip it.\n\n## Risks\n\nToken replay." };
+
+  const { stateDir, payloadPath } = await writePayload(payload);
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "plan", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const url = await readReviewUrl(proc);
+  const token = await bootstrapToken(url);
+
+  const res = await post(url + "api/submit", {
     token,
     decision: "revise",
     annotations: [{ blockIndex: 1, quote: "## Risks", comment: "also rate-limit /auth/request" }],
@@ -172,4 +323,54 @@ test("bin plan mode: validate → serve → annotate + revise → stdout", async
   expect(out.decision).toBe("revise");
   expect(out.annotations).toEqual([{ blockIndex: 1, quote: "## Risks", comment: "also rate-limit /auth/request" }]);
   expect(out.generalFeedback).toBe("tighten the token TTL");
+});
+
+test("bin down cancels the active mode session through saved state", async () => {
+  const payload = {
+    title: "Login PRD",
+    context: "context",
+    decisions: [
+      {
+        id: "auth-method",
+        question: "Which auth methods?",
+        recommendation_reason: "reason long enough to pass",
+        options: [
+          { id: "magic-link", label: "Magic link", recommended: true },
+          { id: "password", label: "Password", recommended: false },
+        ],
+      },
+    ],
+  };
+  const { stateDir, payloadPath } = await writePayload(payload);
+  const env = { ...process.env, CLARINATOR_STATE_DIR: stateDir };
+  const up = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  await readReviewUrl(up);
+  const down = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "down"], {
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await down.exited).toBe(0);
+  expect(await up.exited).toBe(3);
+  expect(JSON.parse(await Bun.readableStreamToText(up.stdout))).toEqual({ status: "cancelled" });
+  expect(await Bun.file(join(stateDir, "clarity.json")).exists()).toBe(false);
+});
+
+test("bin rejects removed --mode entrypoint", async () => {
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "--mode", "clarity"], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await proc.exited).toBe(2);
+  expect(await Bun.readableStreamToText(proc.stderr)).toContain("usage: clarinator <clarity|plan> <up|down>");
 });

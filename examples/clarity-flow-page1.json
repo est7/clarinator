@@ -1,0 +1,37 @@
+{
+  "title": "Login PRD",
+  "subtitle": "Iterative clarity flow",
+  "context": "Page 1 only decides the entry path. The agent will generate the next page after reading this page result.",
+  "flow": {
+    "session_id": "login-prd",
+    "page_id": "entry-path",
+    "page_title": "Page 1: Entry path",
+    "continue_label": "Generate next page",
+    "done_label": "Enough to proceed",
+    "allow_done": false
+  },
+  "decisions": [
+    {
+      "id": "auth-method",
+      "question": "Which auth methods should v1 support?",
+      "recommendation_reason": "The spec emphasizes low friction for a first-party B2C flow, so magic link is the narrowest first page default.",
+      "allow_custom": true,
+      "options": [
+        {
+          "id": "magic-link",
+          "label": "Magic link only",
+          "description": "Passwordless email login.",
+          "recommended": true,
+          "reason": "Lowest friction and smallest first-release surface."
+        },
+        {
+          "id": "password",
+          "label": "Password plus magic link",
+          "description": "Users can sign in either way.",
+          "recommended": false,
+          "reason": "Only worth it if password accounts are explicitly required."
+        }
+      ]
+    }
+  ]
+}

@@ -34,6 +34,18 @@ export interface ClarityPayload {
   title: string;
   subtitle?: string;
   context: string;
+  /**
+   * Optional multi-round flow metadata. When present, the page can return
+   * action="continue" so the agent can think and generate the next payload.
+   */
+  flow?: {
+    session_id?: string;
+    page_id?: string;
+    page_title?: string;
+    continue_label?: string;
+    done_label?: string;
+    allow_done?: boolean;
+  };
   decisions: ClarityDecision[];
 }
 
@@ -59,6 +71,9 @@ export interface ResultItem {
 export interface ClaritySubmission {
   mode: "clarity";
   title: string;
+  action: "continue" | "done";
+  sessionId?: string;
+  pageId?: string;
   result: ResultItem[];
 }
 

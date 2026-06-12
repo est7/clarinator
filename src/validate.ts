@@ -37,13 +37,14 @@ function isObject(v: unknown): v is Record<string, unknown> {
 /** Throws ValidationError on the first violation. Returns the typed payload. */
 export function validatePayload(data: unknown): ClarityPayload {
   require(isObject(data), "<root>", "expected object");
-  const allowed = new Set(["title", "subtitle", "context", "decisions"]);
+  const allowed = new Set(["title", "subtitle", "context", "flow", "decisions"]);
   const extra = Object.keys(data).filter((k) => !allowed.has(k));
   require(extra.length === 0, "<root>", `unknown keys: ${extra.sort().join(", ")}`);
 
   str(data.title, "title", { min: 1, max: 120 });
   if (data.subtitle !== undefined) str(data.subtitle, "subtitle", { max: 160 });
   str(data.context, "context", { min: 1, max: 1200 });
+  if (data.flow !== undefined) validateFlow(data.flow);
 
   require(Array.isArray(data.decisions), "decisions", "expected array");
   const decisions = data.decisions as unknown[];
@@ -154,6 +155,19 @@ export function validatePayload(data: unknown): ClarityPayload {
   });
 
   return data as unknown as ClarityPayload;
+}
+
+function validateFlow(raw: unknown): void {
+  require(isObject(raw), "flow", "expected object");
+  const allowed = new Set(["session_id", "page_id", "page_title", "continue_label", "done_label", "allow_done"]);
+  const extra = Object.keys(raw).filter((k) => !allowed.has(k));
+  require(extra.length === 0, "flow", `unknown keys: ${extra.sort().join(", ")}`);
+  if (raw.session_id !== undefined) kebab(raw.session_id, "flow.session_id", 80);
+  if (raw.page_id !== undefined) kebab(raw.page_id, "flow.page_id", 80);
+  if (raw.page_title !== undefined) str(raw.page_title, "flow.page_title", { min: 1, max: 120 });
+  if (raw.continue_label !== undefined) str(raw.continue_label, "flow.continue_label", { min: 1, max: 40 });
+  if (raw.done_label !== undefined) str(raw.done_label, "flow.done_label", { min: 1, max: 40 });
+  if (raw.allow_done !== undefined) require(typeof raw.allow_done === "boolean", "flow.allow_done", "expected boolean");
 }
 
 /** Convenience: a decision's parent id, or null for a root decision. */

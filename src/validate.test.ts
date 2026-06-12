@@ -38,6 +38,21 @@ describe("validatePayload — happy path", () => {
     });
     expect(() => validatePayload(p)).not.toThrow();
   });
+
+  it("accepts flow metadata for iterative clarity sessions", () => {
+    const p = {
+      ...base(),
+      flow: {
+        session_id: "login-prd",
+        page_id: "scope",
+        page_title: "Page 1: Scope",
+        continue_label: "Next",
+        done_label: "Finish",
+        allow_done: true,
+      },
+    };
+    expect(() => validatePayload(p)).not.toThrow();
+  });
 });
 
 describe("validatePayload — graph rules", () => {
@@ -95,6 +110,14 @@ describe("validatePayload — graph rules", () => {
 describe("validatePayload — field rules", () => {
   it("rejects unknown root keys", () => {
     expect(() => validatePayload({ ...base(), surprise: 1 })).toThrow(/unknown keys/);
+  });
+
+  it("rejects unknown flow keys", () => {
+    expect(() => validatePayload({ ...base(), flow: { page_id: "scope", surprise: 1 } })).toThrow(/flow: unknown keys/);
+  });
+
+  it("rejects non-kebab flow ids", () => {
+    expect(() => validatePayload({ ...base(), flow: { session_id: "Login PRD" } })).toThrow(/flow\.session_id/);
   });
 
   it("rejects a non-kebab id", () => {

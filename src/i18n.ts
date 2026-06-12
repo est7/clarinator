@@ -13,6 +13,8 @@ export interface Strings {
   answered: (answered: number, total: number) => string;
   cancel: string;
   send: string;
+  continue: string;
+  done: string;
   sentTitle: string;
   sentBody: string;
   cancelledTitle: string;
@@ -42,6 +44,8 @@ const EN: Strings = {
   answered: (a, n) => `${a}/${n} answered`,
   cancel: "Cancel",
   send: "Send to agent",
+  continue: "Continue",
+  done: "Done",
   sentTitle: "Sent back to the agent",
   sentBody: "You can close this tab.",
   cancelledTitle: "Cancelled",
@@ -70,6 +74,8 @@ const ZH: Strings = {
   answered: (a, n) => `已答 ${a}/${n}`,
   cancel: "取消",
   send: "提交给 agent",
+  continue: "继续",
+  done: "完成",
   sentTitle: "已回传给 agent",
   sentBody: "可以关掉这个标签页了。",
   cancelledTitle: "已取消",

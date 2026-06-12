@@ -8,6 +8,7 @@ import { EndScreen } from "../components/EndScreen.tsx";
 
 export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
   const { payload } = boot;
+  const flow = payload.flow;
   const t = useMemo(() => strings(resolveLocale(boot.locale)), [boot.locale]);
   const [answers, setAnswers] = useState<Answers>({});
   const { phase, busy, submit, cancel } = useReview(boot.token);
@@ -15,6 +16,9 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
   const visible = useMemo(() => activeDecisions(payload, answers), [payload, answers]);
   const complete = isComplete(payload, answers);
   const answeredCount = visible.length - missing(payload, answers).length;
+  const allowDone = flow?.allow_done !== false;
+  const continueLabel = flow?.continue_label ?? t.continue;
+  const doneLabel = flow?.done_label ?? (flow ? t.done : t.send);
 
   function onChange(decisionId: string, value: Answer) {
     setAnswers((prev) => applyAnswer(payload, prev, decisionId, value));
@@ -29,6 +33,7 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
       <header className="masthead">
         <h1>{payload.title}</h1>
         {payload.subtitle && <div className="sub">{payload.subtitle}</div>}
+        {flow?.page_title && <div className="sub">{flow.page_title}</div>}
         <div className="context">{payload.context}</div>
       </header>
 
@@ -51,9 +56,20 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
           <button className="btn ghost" onClick={cancel} disabled={busy}>
             {t.cancel}
           </button>
-          <button className="btn primary" onClick={() => submit({ answers })} disabled={!complete || busy}>
-            {t.send}
-          </button>
+          {allowDone && (
+            <button className="btn ghost" onClick={() => submit({ answers, action: "done" })} disabled={!complete || busy}>
+              {doneLabel}
+            </button>
+          )}
+          {flow ? (
+            <button className="btn primary" onClick={() => submit({ answers, action: "continue" })} disabled={!complete || busy}>
+              {continueLabel}
+            </button>
+          ) : (
+            <button className="btn primary" onClick={() => submit({ answers, action: "done" })} disabled={!complete || busy}>
+              {doneLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 {
   "name": "clarinator",
-  "version": "0.3.3",
-  "description": "Interactive clarify-before-you-code gate: serve a branching decision tree (or a plan) in the browser, block the agent on one structured submit, print the result to stdout. Run via `bunx github:est7/clarinator`.",
+  "version": "0.4.0",
+  "description": "Interactive clarify-before-you-code gate: serve a branching decision tree (or a plan) in the browser, block the agent on one structured submit, print the result to stdout. Run via `bunx est7/clarinator`.",
   "type": "module",
   "license": "MIT",
   "author": "est7",
@@ -26,7 +26,7 @@
     "serve": "bun bin/clarinator.ts",
     "dev": "vite"
   },
-  "comment": "react/react-dom/marked are devDependencies: the CLI/server never import them; they are only needed to build dist/app.html, which is committed. This keeps `bunx github:est7/clarinator` a zero-dependency install at consume time.",
+  "comment": "react/react-dom/marked are devDependencies: the CLI/server never import them; they are only needed to build dist/app.html, which is committed. This keeps `bunx est7/clarinator` a zero-dependency install at consume time.",
   "devDependencies": {
     "@types/bun": "^1.2.0",
     "@types/jsdom": "^28.0.3",
