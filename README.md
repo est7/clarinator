@@ -41,6 +41,7 @@ Exit codes: `0` submitted · `2` usage/validation error · `3` cancelled · `4` 
 ### CLI
 
 ```
+clarinator --version
 clarinator clarity up --input <payload.json> [--out <result.json>]
            [--timeout-ms 1800000] [--locale zh] [--no-open]
 clarinator clarity continue --input <payload.json> [--out <result.json>]

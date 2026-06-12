@@ -425,5 +425,18 @@ test("bin rejects removed --mode entrypoint", async () => {
   });
 
   expect(await proc.exited).toBe(2);
-  expect(await Bun.readableStreamToText(proc.stderr)).toContain("usage: clarinator <clarity|plan> <up|continue|down>");
+  expect(await Bun.readableStreamToText(proc.stderr)).toContain("usage: clarinator [--version] <clarity|plan> <up|continue|down>");
+});
+
+test("bin --version prints package version", async () => {
+  const packageJson = await Bun.file(join(root, "package.json")).json() as { version: string };
+  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "--version"], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(await proc.exited).toBe(0);
+  expect(await Bun.readableStreamToText(proc.stdout)).toBe(`${packageJson.version}\n`);
+  expect(await Bun.readableStreamToText(proc.stderr)).toBe("");
 });

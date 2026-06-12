@@ -1,6 +1,6 @@
 {
   "name": "clarinator",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Interactive clarify-before-you-code gate: serve a branching decision tree (or a plan) in the browser, block the agent on one structured submit, print the result to stdout. Run via `bunx est7/clarinator`.",
   "type": "module",
   "license": "MIT",

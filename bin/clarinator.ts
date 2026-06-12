@@ -9,6 +9,7 @@
 //   clarinator clarity down
 //   clarinator plan up --input payload.json [--out answers.json]
 //   clarinator plan down
+//   clarinator --version
 //
 // Exit codes: 0 submitted · 2 usage/validation error · 3 cancelled · 4 timeout.
 
@@ -34,7 +35,9 @@ import { startBlockingSingleSubmitServer, type BlockingServerOptions, type Submi
 // the committed dist/app.html at run time. `type: "text"` yields a string at
 // runtime; bun's types annotate it as HTMLBundle, hence the cast.
 import appHtmlRaw from "../dist/app.html" with { type: "text" };
+import packageJson from "../package.json" with { type: "json" };
 const appHtml = appHtmlRaw as unknown as string;
+const version = (packageJson as { version: string }).version;
 
 type Mode = "clarity" | "plan";
 type Action = "up" | "continue" | "down" | "serve-flow";
@@ -87,7 +90,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 function failUsage(): never {
-  fail("usage: clarinator <clarity|plan> <up|continue|down> [--input payload.json] [--locale zh] [--timeout-ms ms] [--no-open]");
+  fail("usage: clarinator [--version] <clarity|plan> <up|continue|down> [--input payload.json] [--locale zh] [--timeout-ms ms] [--no-open]");
 }
 
 function fail(msg: string): never {
@@ -348,6 +351,7 @@ async function runFlowUp(args: Args, payload: ClarityPayload): Promise<never> {
     stdin: "ignore",
     stdout: "ignore",
     stderr: "inherit",
+    detached: true,
   });
   (child as unknown as { unref?: () => void }).unref?.();
   const state = await waitForState("clarity", child.pid);
@@ -557,7 +561,12 @@ async function runUp(args: Args): Promise<never> {
 }
 
 async function main() {
-  const args = parseArgs(Bun.argv.slice(2));
+  const argv = Bun.argv.slice(2);
+  if (argv.length === 1 && (argv[0] === "--version" || argv[0] === "-v")) {
+    process.stdout.write(`${version}\n`);
+    process.exit(0);
+  }
+  const args = parseArgs(argv);
   if (args.action === "down") await runDown(args.mode);
   if (args.action === "continue") await runContinue(args);
   if (args.action === "serve-flow") await runServeFlow(args);
