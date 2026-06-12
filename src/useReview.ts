@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export type Phase = "active" | "sent" | "cancelled" | "error";
+export type Phase = "active" | "handoff" | "sent" | "cancelled" | "error";
 
 /**
  * Shared submit/cancel plumbing for both modes: POSTs to the blocking server,
@@ -44,13 +44,17 @@ export function useReview(token: string) {
     }
   }
 
-  async function submit(body: Record<string, unknown>): Promise<void> {
-    if (await post("/api/submit", { token, ...body })) setPhase("sent");
+  async function submit(body: Record<string, unknown>, nextPhase: Extract<Phase, "handoff" | "sent"> = "sent"): Promise<void> {
+    if (await post("/api/submit", { token, ...body })) setPhase(nextPhase);
+  }
+
+  function resume(): void {
+    setPhase("active");
   }
 
   async function cancel(): Promise<void> {
     if (await post("/api/cancel", { token })) setPhase("cancelled");
   }
 
-  return { phase, busy, submit, cancel };
+  return { phase, busy, submit, cancel, resume };
 }

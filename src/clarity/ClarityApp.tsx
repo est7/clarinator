@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import type { Answer, Answers, ClarityBootstrap } from "../types.ts";
+import { useEffect, useMemo, useState } from "react";
+import type { Answer, Answers, ClarityBootstrap, ClarityPayload } from "../types.ts";
 import { activeDecisions, answer as applyAnswer, isComplete, missing } from "../reducer.ts";
 import { resolveLocale, strings } from "../i18n.ts";
 import { useReview } from "../useReview.ts";
@@ -7,11 +7,11 @@ import { Decision } from "../components/Decision.tsx";
 import { EndScreen } from "../components/EndScreen.tsx";
 
 export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
-  const { payload } = boot;
+  const [payload, setPayload] = useState<ClarityPayload>(boot.payload);
   const flow = payload.flow;
   const t = useMemo(() => strings(resolveLocale(boot.locale)), [boot.locale]);
   const [answers, setAnswers] = useState<Answers>({});
-  const { phase, busy, submit, cancel } = useReview(boot.token);
+  const { phase, busy, submit, cancel, resume } = useReview(boot.token);
 
   const visible = useMemo(() => activeDecisions(payload, answers), [payload, answers]);
   const complete = isComplete(payload, answers);
@@ -23,6 +23,35 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
   function onChange(decisionId: string, value: Answer) {
     setAnswers((prev) => applyAnswer(payload, prev, decisionId, value));
   }
+
+  useEffect(() => {
+    if (phase !== "handoff") return;
+    let alive = true;
+    const currentPage = payload.flow?.page_id ?? "";
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/bootstrap", { cache: "no-store" });
+        if (!res.ok) return;
+        const next = (await res.json()) as ClarityBootstrap;
+        if (!alive || next.mode !== "clarity") return;
+        const nextPage = next.payload.flow?.page_id ?? "";
+        if (nextPage && nextPage !== currentPage) {
+          setPayload(next.payload);
+          setAnswers({});
+          resume();
+        }
+      } catch {
+        // The end screen already tells the user to return to the terminal if the
+        // local server disappears.
+      }
+    };
+    const id = setInterval(poll, 1000);
+    poll();
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [phase, payload.flow?.page_id]);
 
   if (phase !== "active") return <EndScreen phase={phase} t={t} />;
 
@@ -62,7 +91,7 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
             </button>
           )}
           {flow ? (
-            <button className="btn primary" onClick={() => submit({ answers, action: "continue" })} disabled={!complete || busy}>
+            <button className="btn primary" onClick={() => submit({ answers, action: "continue" }, "handoff")} disabled={!complete || busy}>
               {continueLabel}
             </button>
           ) : (

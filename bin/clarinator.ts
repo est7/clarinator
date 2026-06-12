@@ -5,6 +5,7 @@
 //
 //   clarinator clarity up --input payload.json [--out answers.json]
 //                  [--timeout-ms 1800000] [--locale zh] [--no-open]
+//   clarinator clarity continue --input next-page.json
 //   clarinator clarity down
 //   clarinator plan up --input payload.json [--out answers.json]
 //   clarinator plan down
@@ -27,7 +28,7 @@ import type {
   PlanPayload,
   PlanSubmission,
 } from "../src/types.ts";
-import { startBlockingSingleSubmitServer, type BlockingServerOptions } from "../server/primitive.ts";
+import { startBlockingSingleSubmitServer, type BlockingServerOptions, type SubmitOutcome } from "../server/primitive.ts";
 // Embedded at build/compile time so the compiled binary is fully self-contained
 // (no runtime dependency on a sibling dist/ directory). In source mode bun reads
 // the committed dist/app.html at run time. `type: "text"` yields a string at
@@ -36,7 +37,7 @@ import appHtmlRaw from "../dist/app.html" with { type: "text" };
 const appHtml = appHtmlRaw as unknown as string;
 
 type Mode = "clarity" | "plan";
-type Action = "up" | "down";
+type Action = "up" | "continue" | "down" | "serve-flow";
 
 interface Args {
   mode: Mode;
@@ -46,12 +47,13 @@ interface Args {
   timeoutMs: number;
   locale?: string;
   open: boolean;
+  token?: string;
 }
 
 function parseArgs(argv: string[]): Args {
   const [modeRaw, actionRaw] = argv;
   if (modeRaw !== "clarity" && modeRaw !== "plan") failUsage();
-  if (actionRaw !== "up" && actionRaw !== "down") failUsage();
+  if (actionRaw !== "up" && actionRaw !== "continue" && actionRaw !== "down" && actionRaw !== "serve-flow") failUsage();
 
   const a: Args = { mode: modeRaw, action: actionRaw, timeoutMs: 30 * 60 * 1000, open: true };
   for (let i = 2; i < argv.length; i++) {
@@ -66,20 +68,26 @@ function parseArgs(argv: string[]): Args {
       case "--out": a.out = next(); break;
       case "--timeout-ms": a.timeoutMs = Number(next()); break;
       case "--locale": a.locale = next(); break;
+      case "--token": a.token = next(); break;
       case "--no-open": a.open = false; break;
       default: fail(`unknown argument: ${k}`);
     }
   }
   if (!Number.isFinite(a.timeoutMs) || a.timeoutMs <= 0) fail("--timeout-ms must be a positive number");
-  if (a.action === "up" && !a.input) fail("up requires --input <payload.json>");
-  if (a.action === "down" && (a.input || a.out || a.locale || !a.open || a.timeoutMs !== 30 * 60 * 1000)) {
+  if ((a.action === "up" || a.action === "continue" || a.action === "serve-flow") && !a.input) {
+    fail(`${a.action} requires --input <payload.json>`);
+  }
+  if (a.action === "continue" && a.mode !== "clarity") fail("continue is only supported for clarity flow sessions");
+  if (a.action === "serve-flow" && (a.mode !== "clarity" || !a.token)) fail("serve-flow is internal and requires clarity + --token");
+  if (a.action === "down" && (a.input || a.out || a.locale || a.token || !a.open || a.timeoutMs !== 30 * 60 * 1000)) {
     fail("down accepts no flags");
   }
+  if (a.mode === "plan" && (a.action === "continue" || a.action === "serve-flow")) fail(`${a.action} is not supported for plan`);
   return a;
 }
 
 function failUsage(): never {
-  fail("usage: clarinator <clarity|plan> <up|down> [--input payload.json] [--locale zh] [--timeout-ms ms] [--no-open]");
+  fail("usage: clarinator <clarity|plan> <up|continue|down> [--input payload.json] [--locale zh] [--timeout-ms ms] [--no-open]");
 }
 
 function fail(msg: string): never {
@@ -139,29 +147,31 @@ function openBrowser(url: string): void {
 type Submission = ClaritySubmission | PlanSubmission;
 type OnSubmit = BlockingServerOptions<Submission>["onSubmit"];
 
+function buildClaritySubmission(payload: ClarityPayload, body: unknown): { ok: true; result: ClaritySubmission } | { ok: false; error: string } {
+  const b = body as Record<string, unknown>;
+  const action = b.action === "continue" ? "continue" : "done";
+  if (action === "continue" && payload.flow === undefined) return { ok: false, error: "continue action requires payload.flow" };
+  if (action === "done" && payload.flow?.allow_done === false) return { ok: false, error: "done action is disabled for this page" };
+  const answers = sanitizeAnswers(payload, b.answers);
+  const verdict = validateAnswers(payload, answers);
+  if (!verdict.ok) return verdict;
+  return {
+    ok: true,
+    result: {
+      mode: "clarity",
+      title: payload.title,
+      action,
+      ...(payload.flow?.session_id ? { sessionId: payload.flow.session_id } : {}),
+      ...(payload.flow?.page_id ? { pageId: payload.flow.page_id } : {}),
+      result: buildResult(payload, answers),
+    },
+  };
+}
+
 function prepareClarity(payload: ClarityPayload, token: string, locale?: string): { boot: Bootstrap; onSubmit: OnSubmit } {
   return {
     boot: { mode: "clarity", token, locale, payload },
-    onSubmit: (body) => {
-      const b = body as Record<string, unknown>;
-      const action = b.action === "continue" ? "continue" : "done";
-      if (action === "continue" && payload.flow === undefined) return { ok: false, error: "continue action requires payload.flow" };
-      if (action === "done" && payload.flow?.allow_done === false) return { ok: false, error: "done action is disabled for this page" };
-      const answers = sanitizeAnswers(payload, b.answers);
-      const verdict = validateAnswers(payload, answers);
-      if (!verdict.ok) return verdict;
-      return {
-        ok: true,
-        result: {
-          mode: "clarity",
-          title: payload.title,
-          action,
-          ...(payload.flow?.session_id ? { sessionId: payload.flow.session_id } : {}),
-          ...(payload.flow?.page_id ? { pageId: payload.flow.page_id } : {}),
-          result: buildResult(payload, answers),
-        },
-      };
-    },
+    onSubmit: (body) => buildClaritySubmission(payload, body),
   };
 }
 
@@ -262,6 +272,103 @@ async function clearState(mode: Mode, pid?: number): Promise<void> {
   await rm(statePath(mode), { force: true });
 }
 
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json", "cache-control": "no-store" },
+  });
+}
+
+async function readClarityPayload(path: string | undefined): Promise<ClarityPayload> {
+  const raw = await readInput(path);
+  try {
+    return validatePayload(raw);
+  } catch (e) {
+    if (e instanceof ValidationError) fail(`payload validation failed: ${e.message}`);
+    throw e;
+  }
+}
+
+async function postJson(url: URL, body: unknown): Promise<Response> {
+  return fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function waitForState(mode: Mode, pid: number): Promise<SessionState> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const state = await readState(mode);
+    if (state?.pid === pid) return state;
+    await Bun.sleep(50);
+  }
+  fail(`timed out waiting for ${mode} session to start`);
+}
+
+async function waitForFlowResult(state: SessionState, seq: number, out?: string): Promise<never> {
+  const res = await postJson(new URL("api/result", state.url), { token: state.token, seq });
+  if (res.status === 403) fail("clarity session rejected result token");
+  if (!res.ok) fail(`clarity result failed with HTTP ${res.status}`);
+  const outcome = await res.json();
+  if (!outcome || typeof outcome !== "object" || !("status" in outcome)) fail("clarity result returned invalid outcome");
+  if (outcome.status !== "submitted") {
+    process.stdout.write(JSON.stringify(outcome) + "\n");
+    process.exit(outcome.status === "cancelled" ? 3 : 4);
+  }
+  const result = (outcome as { result: unknown }).result;
+  const text = JSON.stringify(result, null, 2);
+  if (out) await Bun.write(out, text);
+  process.stdout.write(text + "\n");
+  process.exit(0);
+}
+
+async function runFlowUp(args: Args, payload: ClarityPayload): Promise<never> {
+  if (!payload.flow) fail("clarity flow up requires payload.flow");
+  await clearState("clarity");
+  const token = crypto.randomUUID();
+  const cmd: string[] = [
+    "bun",
+    Bun.argv[1]!,
+    "clarity",
+    "serve-flow",
+    "--input",
+    args.input!,
+    "--token",
+    token,
+    "--timeout-ms",
+    String(args.timeoutMs),
+    ...(args.locale ? ["--locale", args.locale] : []),
+    ...(args.open ? [] : ["--no-open"]),
+  ];
+  const child = Bun.spawn(cmd, {
+    cwd: process.cwd(),
+    env: process.env,
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "inherit",
+  });
+  (child as unknown as { unref?: () => void }).unref?.();
+  const state = await waitForState("clarity", child.pid);
+  await waitForFlowResult(state, 1, args.out);
+  process.exit(0);
+}
+
+async function runContinue(args: Args): Promise<never> {
+  const state = await readState("clarity");
+  if (!state) fail("no active clarity session");
+  const payload = await readClarityPayload(args.input);
+  if (!payload.flow) fail("clarity continue requires payload.flow");
+  const res = await postJson(new URL("api/continue", state.url), { token: state.token, payload, locale: args.locale });
+  if (res.status === 403) fail("clarity session rejected continue token");
+  if (!res.ok) fail(`clarity continue failed with HTTP ${res.status}`);
+  const body = (await res.json()) as { seq?: unknown };
+  if (typeof body.seq !== "number") fail("clarity continue returned no page sequence");
+  await waitForFlowResult(state, body.seq, args.out);
+  process.exit(0);
+}
+
 async function runDown(mode: Mode): Promise<never> {
   const state = await readState(mode);
   if (!state) {
@@ -289,9 +396,126 @@ async function runDown(mode: Mode): Promise<never> {
   process.exit(0);
 }
 
+async function runServeFlow(args: Args): Promise<never> {
+  const token = args.token!;
+  let payload = await readClarityPayload(args.input);
+  if (!payload.flow) fail("clarity flow session requires payload.flow");
+  let seq = 1;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const waiters = new Map<number, (value: SubmitOutcome<ClaritySubmission>) => void>();
+  const results = new Map<number, SubmitOutcome<ClaritySubmission>>();
+
+  const boot = (): Bootstrap => ({ mode: "clarity", token, locale: args.locale, payload });
+
+  const resolveSeq = (n: number, outcome: SubmitOutcome<ClaritySubmission>) => {
+    if (results.has(n)) return;
+    results.set(n, outcome);
+    waiters.get(n)?.(outcome);
+    waiters.delete(n);
+  };
+
+  const waitSeq = (n: number): Promise<SubmitOutcome<ClaritySubmission>> => {
+    const existing = results.get(n);
+    if (existing) return Promise.resolve(existing);
+    return new Promise((resolve) => waiters.set(n, resolve));
+  };
+
+  const resetTimer = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      resolveSeq(seq, { status: "timeout" });
+      shutdown(4);
+    }, args.timeoutMs);
+  };
+
+  let server: ReturnType<typeof Bun.serve>;
+  const shutdown = (code: number) => {
+    if (timer) clearTimeout(timer);
+    setTimeout(async () => {
+      await clearState("clarity", process.pid);
+      await server.stop();
+      process.exit(code);
+    }, 50);
+  };
+
+  server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+        return new Response(inject(boot()), {
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+        });
+      }
+      if (req.method === "GET" && url.pathname === "/api/bootstrap") {
+        return json(boot());
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/result") {
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        if (body.token !== token) return json({ error: "bad token" }, 403);
+        const wanted = typeof body.seq === "number" ? body.seq : 0;
+        if (!wanted) return json({ error: "missing seq" }, 422);
+        return json(await waitSeq(wanted));
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/continue") {
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        if (body.token !== token) return json({ error: "bad token" }, 403);
+        try {
+          payload = validatePayload(body.payload);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return json({ error: msg }, 422);
+        }
+        if (!payload.flow) return json({ error: "continue payload requires flow" }, 422);
+        seq += 1;
+        resetTimer();
+        return json({ ok: true, seq });
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/submit") {
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        if (body.token !== token) return json({ error: "bad token" }, 403);
+        const verdict = buildClaritySubmission(payload, body);
+        if (!verdict.ok) return json({ error: verdict.error }, 422);
+        resolveSeq(seq, { status: "submitted", result: verdict.result });
+        return json({ ok: true });
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/cancel") {
+        const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+        if (body.token !== token) return json({ error: "bad token" }, 403);
+        resolveSeq(seq, { status: "cancelled" });
+        shutdown(0);
+        return json({ ok: true });
+      }
+
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  resetTimer();
+  const url = `http://127.0.0.1:${server.port}/`;
+  await writeState({ mode: "clarity", url, token, pid: process.pid, startedAt: new Date().toISOString() });
+  process.stderr.write(`clarinator: review at ${url}\n`);
+  if (args.open) openBrowser(url);
+  await new Promise(() => undefined);
+  process.exit(0);
+}
+
 async function runUp(args: Args): Promise<never> {
   const token = crypto.randomUUID();
-  const { boot, onSubmit } = await prepare(args, token);
+  let prepared: { boot: Bootstrap; onSubmit: OnSubmit };
+  if (args.mode === "clarity") {
+    const payload = await readClarityPayload(args.input);
+    if (payload.flow) await runFlowUp(args, payload);
+    prepared = prepareClarity(payload, token, args.locale);
+  } else {
+    prepared = await prepare(args, token);
+  }
+  const { boot, onSubmit } = prepared;
   const html = inject(boot);
 
   const server = startBlockingSingleSubmitServer<Submission>({ html, token, timeoutMs: args.timeoutMs, onSubmit });
@@ -335,6 +559,8 @@ async function runUp(args: Args): Promise<never> {
 async function main() {
   const args = parseArgs(Bun.argv.slice(2));
   if (args.action === "down") await runDown(args.mode);
+  if (args.action === "continue") await runContinue(args);
+  if (args.action === "serve-flow") await runServeFlow(args);
   await runUp(args);
 }
 

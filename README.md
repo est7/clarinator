@@ -8,29 +8,45 @@ then prints the structured result to stdout for the agent to read.
 Built to be run on demand — no install step in your project:
 
 ```bash
-bunx github:est7/clarinator --mode clarity --input payload.json
-# or pin a version:
-bunx github:est7/clarinator#v0.3.3 --mode clarity --input payload.json
+bunx est7/clarinator clarity up --input payload.json
 ```
 
 Requires **bun** on the host (`curl -fsSL https://bun.sh/install | bash`).
 
 ## How it works
 
-1. The agent writes a `ClarityPayload` (a decision tree, see below) to a JSON file.
-2. `clarinator --mode clarity --input payload.json` validates it, serves the
+1. The agent writes a `ClarityPayload` (a decision page, see below) to a JSON file.
+2. `clarinator clarity up --input payload.json` validates it, serves the
    prebuilt UI at `http://127.0.0.1:<random>/`, and opens your browser.
 3. You answer. Each pick may reveal child questions gated by `show_if`; the page
    resolves the active set client-side — no round-trips.
 4. You hit **Send to agent**. The server prints the result to stdout and exits.
+
+For multi-page clarity flows, include `flow` metadata. `clarity up` starts the
+session and waits for page 1. If the result says `action: "continue"`, the agent
+generates the next page and runs:
+
+```bash
+bunx est7/clarinator clarity continue --input next-page.json
+```
+
+When the flow is complete or should be cancelled, close the session:
+
+```bash
+bunx est7/clarinator clarity down
+```
 
 Exit codes: `0` submitted · `2` usage/validation error · `3` cancelled · `4` timeout.
 
 ### CLI
 
 ```
-clarinator --mode clarity --input <payload.json> [--out <result.json>]
+clarinator clarity up --input <payload.json> [--out <result.json>]
            [--timeout-ms 1800000] [--locale zh] [--no-open]
+clarinator clarity continue --input <payload.json> [--out <result.json>]
+clarinator clarity down
+clarinator plan up --input <payload.json> [--out <result.json>]
+clarinator plan down
 ```
 
 `--input` defaults to stdin. The result is always printed to stdout; `--out`
@@ -84,6 +100,9 @@ additionally writes it to a file. UI chrome is localized via `--locale`
 {
   "mode": "clarity",
   "title": "Login PRD",
+  "action": "continue",
+  "sessionId": "login-prd",
+  "pageId": "entry-path",
   "result": [
     { "decisionId": "auth-method", "question": "…", "optionId": "magic-link", "answer": "Magic link only", "custom": false }
   ]
@@ -105,7 +124,7 @@ bun run check        # typecheck + vitest (logic) + build + bun test (server)
 - `dist/app.html` — the committed prebuilt single-file UI. **Rebuild and
   commit it whenever `src/` changes** (`bun run build`).
 
-## Plan mode (`--mode plan`)
+## Plan mode
 
 Step 2 of the SOP, reusing the same blocking primitive. The agent writes a
 `PlanPayload` (`{ title, subtitle?, plan }` where `plan` is Markdown); clarinator
@@ -113,7 +132,7 @@ renders it into commentable blocks. You attach inline comments per block, add
 overall feedback, and either **Approve** or **Request changes**.
 
 ```bash
-bunx github:est7/clarinator --mode plan --input plan.json
+bunx est7/clarinator plan up --input plan.json
 ```
 
 Result:

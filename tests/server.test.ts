@@ -42,26 +42,17 @@ async function bootstrapToken(url: string): Promise<string> {
   return token!;
 }
 
-async function runClarityPage(
-  payloadPath: string,
-  stateDir: string,
-  body: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const proc = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "up", "--input", payloadPath, "--no-open", "--timeout-ms", "10000"], {
-    cwd: root,
-    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  const url = await readReviewUrl(proc);
-  const token = await bootstrapToken(url);
-  const res = await post(url + "api/submit", { token, ...body });
-  expect(res.status).toBe(200);
-
-  const out = JSON.parse(await Bun.readableStreamToText(proc.stdout));
-  expect(await proc.exited).toBe(0);
-  return out;
+async function waitForBootstrapPage(url: string, pageId: string): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const res = await fetch(url + "api/bootstrap");
+    if (res.ok) {
+      const boot = await res.json();
+      if (boot?.payload?.flow?.page_id === pageId) return;
+    }
+    await Bun.sleep(50);
+  }
+  throw new Error(`timed out waiting for page ${pageId}`);
 }
 
 test("submit resolves with the onSubmit result", async () => {
@@ -227,15 +218,47 @@ test("bin clarity flow: continue returns page result for the agent to generate t
     pageId: "scope",
     result: [{ decisionId: "auth-method", optionId: "password", answer: "Password", custom: false }],
   });
+  const down = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "down"], {
+    cwd: root,
+    env: { ...process.env, CLARINATOR_STATE_DIR: stateDir },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(await down.exited).toBe(0);
 });
 
-test("bin clarity flow examples: page1 continue, agent-provided page2 done", async () => {
+test("bin clarity flow examples: page1 up, page2 continue, then down", async () => {
   const stateDir = join(await mkdtemp(join(tmpdir(), "clarinator-flow-e2e-")), "state");
+  const env = { ...process.env, CLARINATOR_STATE_DIR: stateDir };
 
-  const page1 = await runClarityPage(join(root, "examples", "clarity-flow-page1.json"), stateDir, {
+  const up = Bun.spawn([
+    "bun",
+    "bin/clarinator.ts",
+    "clarity",
+    "up",
+    "--input",
+    join(root, "examples", "clarity-flow-page1.json"),
+    "--no-open",
+    "--timeout-ms",
+    "10000",
+  ], {
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const url = await readReviewUrl(up);
+  const token = await bootstrapToken(url);
+  const firstSubmit = await post(url + "api/submit", {
+    token,
     action: "continue",
     answers: { "auth-method": { kind: "option", optionId: "password" } },
   });
+  expect(firstSubmit.status).toBe(200);
+
+  const page1 = JSON.parse(await Bun.readableStreamToText(up.stdout));
+  expect(await up.exited).toBe(0);
   expect(page1).toMatchObject({
     mode: "clarity",
     action: "continue",
@@ -244,13 +267,35 @@ test("bin clarity flow examples: page1 continue, agent-provided page2 done", asy
     result: [{ decisionId: "auth-method", optionId: "password", answer: "Password plus magic link", custom: false }],
   });
 
-  const page2 = await runClarityPage(join(root, "examples", "clarity-flow-page2-password.json"), stateDir, {
+  const cont = Bun.spawn([
+    "bun",
+    "bin/clarinator.ts",
+    "clarity",
+    "continue",
+    "--input",
+    join(root, "examples", "clarity-flow-page2-password.json"),
+    "--timeout-ms",
+    "10000",
+  ], {
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  await waitForBootstrapPage(url, "password-details");
+  const secondSubmit = await post(url + "api/submit", {
+    token,
     action: "done",
     answers: {
       "password-strength": { kind: "option", optionId: "lenient" },
       "recovery-flow": { kind: "option", optionId: "magic-link-reset" },
     },
   });
+  expect(secondSubmit.status).toBe(200);
+
+  const page2 = JSON.parse(await Bun.readableStreamToText(cont.stdout));
+  expect(await cont.exited).toBe(0);
   expect(page2).toMatchObject({
     mode: "clarity",
     action: "done",
@@ -261,6 +306,14 @@ test("bin clarity flow examples: page1 continue, agent-provided page2 done", asy
       { decisionId: "recovery-flow", optionId: "magic-link-reset", answer: "Use magic link as reset", custom: false },
     ],
   });
+
+  const down = Bun.spawn(["bun", "bin/clarinator.ts", "clarity", "down"], {
+    cwd: root,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(await down.exited).toBe(0);
 });
 
 test("bin clarity flow rejects done when the page requires continue", async () => {
@@ -372,5 +425,5 @@ test("bin rejects removed --mode entrypoint", async () => {
   });
 
   expect(await proc.exited).toBe(2);
-  expect(await Bun.readableStreamToText(proc.stderr)).toContain("usage: clarinator <clarity|plan> <up|down>");
+  expect(await Bun.readableStreamToText(proc.stderr)).toContain("usage: clarinator <clarity|plan> <up|continue|down>");
 });

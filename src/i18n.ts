@@ -15,6 +15,8 @@ export interface Strings {
   send: string;
   continue: string;
   done: string;
+  handoffTitle: string;
+  handoffBody: string;
   sentTitle: string;
   sentBody: string;
   cancelledTitle: string;
@@ -46,6 +48,8 @@ const EN: Strings = {
   send: "Send to agent",
   continue: "Continue",
   done: "Done",
+  handoffTitle: "Preparing the next page",
+  handoffBody: "Keep this tab open. The agent is using these answers to generate the next page.",
   sentTitle: "Sent back to the agent",
   sentBody: "You can close this tab.",
   cancelledTitle: "Cancelled",
@@ -76,6 +80,8 @@ const ZH: Strings = {
   send: "提交给 agent",
   continue: "继续",
   done: "完成",
+  handoffTitle: "正在生成下一页",
+  handoffBody: "先不要关这个标签页。agent 会根据这一页答案生成下一页。",
   sentTitle: "已回传给 agent",
   sentBody: "可以关掉这个标签页了。",
   cancelledTitle: "已取消",

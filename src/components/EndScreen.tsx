@@ -1,7 +1,16 @@
 import type { Strings } from "../i18n.ts";
 
 /** Terminal screen shown after submit / cancel / connection loss. */
-export function EndScreen({ phase, t }: { phase: "sent" | "cancelled" | "error"; t: Strings }) {
+export function EndScreen({ phase, t }: { phase: "handoff" | "sent" | "cancelled" | "error"; t: Strings }) {
+  if (phase === "handoff") {
+    return (
+      <div className="end">
+        <div className="mark">✓</div>
+        <h2>{t.handoffTitle}</h2>
+        <p>{t.handoffBody}</p>
+      </div>
+    );
+  }
   if (phase === "sent") {
     return (
       <div className="end">
