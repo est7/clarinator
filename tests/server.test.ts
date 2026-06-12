@@ -286,7 +286,7 @@ test("bin clarity flow examples: page1 up, page2 continue, then down", async () 
   await waitForBootstrapPage(url, "password-details");
   const secondSubmit = await post(url + "api/submit", {
     token,
-    action: "done",
+    action: "continue",
     answers: {
       "password-strength": { kind: "option", optionId: "lenient" },
       "recovery-flow": { kind: "option", optionId: "magic-link-reset" },
@@ -298,7 +298,7 @@ test("bin clarity flow examples: page1 up, page2 continue, then down", async () 
   expect(await cont.exited).toBe(0);
   expect(page2).toMatchObject({
     mode: "clarity",
-    action: "done",
+    action: "continue",
     sessionId: "login-prd",
     pageId: "password-details",
     result: [

@@ -16,8 +16,6 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
   const visible = useMemo(() => activeDecisions(payload, answers), [payload, answers]);
   const complete = isComplete(payload, answers);
   const answeredCount = visible.length - missing(payload, answers).length;
-  const allowDone = flow?.allow_done !== false;
-  const continueLabel = flow?.continue_label ?? t.continue;
   const doneLabel = flow?.done_label ?? (flow ? t.done : t.send);
 
   function onChange(decisionId: string, value: Answer) {
@@ -85,14 +83,9 @@ export function ClarityApp({ boot }: { boot: ClarityBootstrap }) {
           <button className="btn ghost" onClick={cancel} disabled={busy}>
             {t.cancel}
           </button>
-          {allowDone && (
-            <button className="btn ghost" onClick={() => submit({ answers, action: "done" })} disabled={!complete || busy}>
-              {doneLabel}
-            </button>
-          )}
           {flow ? (
             <button className="btn primary" onClick={() => submit({ answers, action: "continue" }, "handoff")} disabled={!complete || busy}>
-              {continueLabel}
+              {t.send}
             </button>
           ) : (
             <button className="btn primary" onClick={() => submit({ answers, action: "done" })} disabled={!complete || busy}>

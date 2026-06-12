@@ -23,8 +23,9 @@ Requires **bun** on the host (`curl -fsSL https://bun.sh/install | bash`).
 4. You hit **Send to agent**. The server prints the result to stdout and exits.
 
 For multi-page clarity flows, include `flow` metadata. `clarity up` starts the
-session and waits for page 1. If the result says `action: "continue"`, the agent
-generates the next page and runs:
+session and waits for page 1. The browser only submits the current page's
+answers; the agent reads stdout, then decides whether another page is needed. If
+so, it generates the next page and runs:
 
 ```bash
 bunx est7/clarinator clarity continue --input next-page.json
